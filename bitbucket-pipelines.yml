@@ -1,0 +1,63 @@
+definitions:
+  steps:
+    - step: &deploy-step
+        name: SAM Deploying
+        image: public.ecr.aws/sam/build-python3.11
+        caches:
+          - docker
+        script:
+          - export $(cat deployment_info.env | xargs)
+          - source .env.deploy
+          - export NOW=$(TZ='Asia/Seoul' date +"%Y-%m-%d.%H:%M:%S")
+          - export DEPLOYMENT_INFO="Tag/Branch:$TAG_OR_BRANCH\ Commit:$BITBUCKET_COMMIT\ Datetime:$NOW"
+          - export ENV_STACK_NAME="$STACK_NAME-$SERVER"
+          - aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID --profile $PROFILE
+          - aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY --profile $PROFILE
+          - aws configure set region $REGION --profile $PROFILE
+          - sam validate --region $REGION
+          - sam build --profile $PROFILE --region $REGION --template-file $TEMPLATE_FILE
+          - PARAMETER_OVERRIDES="StageName=$SERVER DeploymentInfo=$DEPLOYMENT_INFO"
+          - pipe: atlassian/aws-sam-deploy:2.4.0
+            variables:
+              AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+              AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+              AWS_DEFAULT_REGION: $REGION
+              COMMAND: "deploy"
+              DEBUG: "true"
+              EXTRA_OPTIONS_DEPLOY:
+                - "--capabilities=CAPABILITY_NAMED_IAM"
+                - "--stack-name=$ENV_STACK_NAME"
+                - "--s3-bucket=$DEPOLOY_S3_BUCKET_NAME"
+                - "--s3-prefix=backend/notification/deploy/$SERVER"
+                - "--parameter-overrides=$PARAMETER_OVERRIDES"
+
+
+    - step: &notify-step
+        name: Message to Slack
+        script:
+          - export $(cat deployment_info.env | xargs)
+          - source .env.deploy
+          - pipe: atlassian/slack-notify:2.3.1
+            variables:
+              WEBHOOK_URL: $SLACK_WEBHOOK_URL
+              MESSAGE: |
+                - repository: ${BITBUCKET_REPO_FULL_NAME}
+                - version/branch: ${TAG_OR_BRANCH}
+                - commit: ${BITBUCKET_COMMIT}
+                - server: ${SERVER}
+              DEBUG: "true"
+
+pipelines:
+  custom:
+    deployment-to-dev:
+      - step:
+          name: Environment Setup (dev)
+          deployment: Development
+          script:
+            - echo "SERVER=dev" > deployment_info.env
+            - echo "TAG_OR_BRANCH=$BITBUCKET_BRANCH" >> deployment_info.env
+          artifacts:
+            - deployment_info.env
+
+      - step: *deploy-step
+      - step: *notify-step

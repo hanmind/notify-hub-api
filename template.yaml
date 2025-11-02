@@ -1,0 +1,132 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'temporary-notification'
+
+Conditions:
+  IsProd: !Equals [ !Ref StageName, 'prod' ]
+  IsRelease: !Equals [ !Ref StageName, 'rel' ]
+  IsDev: !Equals [ !Ref StageName, 'dev' ]
+
+Parameters:
+  StageName:
+    Type: String
+    AllowedValues:
+     - dev
+    Description: 'API Gateway stage name'
+    ConstraintDescription: 'ex: dev'
+
+  DeploymentInfo:
+    Type: String
+    Description: 'deployment information: tag/branch, commit hash, deploy datetime'
+    ConstraintDescription: 'ex: Tag/Branch:1.0.0 Commit:c1f825 Datetime:2024-01-10.17:31:22'
+
+Resources:
+  # lambda
+  LambdaLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: backend-fastapi-packages
+      Description: 'FastAPI packages and libraries'
+      ContentUri: ./
+      CompatibleArchitectures:
+        - arm64
+      CompatibleRuntimes:
+        - python3.11
+      RetentionPolicy: Retain
+    Metadata:
+      BuildMethod: python3.11
+      BuildArchitecture: arm64
+
+  LambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Zip
+      FunctionName: !Sub 'backend-${AWS::StackName}'
+      Description: 'temporary-notification'
+      Runtime: python3.11
+      Architectures:
+        - arm64
+      Handler: run.handler
+      CodeUri: ./
+      Layers:
+        - !Ref LambdaLayer
+      Environment:
+        Variables:
+          server: !Ref StageName
+          TZ: 'Asia/Seoul'
+      Timeout: 30
+      MemorySize: !If  # 최소 190 이상으로 설정
+        - IsProd
+        - 512
+        - 256
+      Tags:
+        Team: backend
+        Env: !Ref StageName
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+      VpcConfig:
+        SecurityGroupIds:
+          - sg-0bfa8454db81fc016
+        SubnetIds:
+          - subnet-0eb8ba73407339e36
+          - subnet-06316528eb05364ea
+
+  LambdaFunctionVersion:
+    Type: AWS::Lambda::Version
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      FunctionName: !Ref LambdaFunction
+      Description: !Ref DeploymentInfo
+
+  LambdaFunctionAlias:
+    Type: AWS::Lambda::Alias
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      FunctionName: !Ref LambdaFunction
+      FunctionVersion: !GetAtt LambdaFunctionVersion.Version
+      Name: !Ref StageName
+
+
+  # api gateway
+  ApiGateway:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: !Ref AWS::StackName
+      Tags:
+        Team: backend
+        Env: !Ref StageName
+
+      CorsConfiguration:
+        AllowCredentials: true
+        AllowHeaders:
+          - '*'
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+          - OPTIONS
+
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway Endpoint
+    Value: !Sub 'https://${ApiGateway}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  ApiId:
+    Description: API Gateway ID
+    Value: !Ref ApiGateway # 물리적 ID 반환
+  StageName:
+    Description: API Gateway StageName
+    Value: !Ref StageName
+  LambdaFunctionArn:
+    Description: Lambda Function Arn
+    Value: !GetAtt LambdaFunction.Arn
+  LambdaFunctionVersion:
+    Description: Lambda Function Version
+    Value: !GetAtt LambdaFunctionVersion.Version
