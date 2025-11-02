@@ -153,19 +153,51 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ### 이메일 발송
 
 ```bash
+# 단일 이메일 발송
+curl -X POST "http://localhost:8000/api/v1/email/send" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: {YOUR_API_KEY}" \
+  -d '{
+    "to_email": "user@example.com",
+    "to_name": "홍길동",
+    "subject": "환영합니다!",
+    "html_body": "<h1>가입을 축하합니다!</h1>",
+    "sender_address": "noreply@example.com"
+  }'
 
+# 대량 이메일 발송
+curl -X POST "http://localhost:8000/api/v1/email/send-bulk" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: {YOUR_API_KEY}" \
+  -d '{
+    "subject": "공지사항",
+    "html_body": "<p>중요 공지입니다.</p>",
+    "sender_address": "noreply@example.com",
+    "recipients": [
+      {"email": "user1@example.com", "name": "홍길동"},
+      {"email": "user2@example.com", "name": "김철수"}
+    ]
+  }'
 ```
 
 ### 이메일 상태 조회
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/email/status/{email_id}"
+# 메일 상태 조회 (mail_id 기준)
+curl -X GET "http://localhost:8000/api/v1/email/status/{mail_id}" \
+  -H "X-API-Key: {YOUR_API_KEY}"
+
+# 요청 ID로 발송 목록 조회 (mail_id 확인용)
+curl -X GET "http://localhost:8000/api/v1/email/list/{request_id}" \
+  -H "X-API-Key: {YOUR_API_KEY}"
 ```
 
 ### SMS 발송
 
 ```bash
-
+# (임시) SMS 발송 엔드포인트 호출
+curl -X POST "http://localhost:8000/api/v1/sms/send" \
+  -H "X-API-Key: {YOUR_API_KEY}"
 ```
 
 ## 🔧 설정 정보
@@ -206,7 +238,6 @@ pytest -q
 
 - [NCloud Cloud Outbound Mailer API](https://api.ncloud-docs.com/docs/ai-application-service-cloudoutboundmailer)
 - [FastAPI 공식 문서](https://fastapi.tiangolo.com/)
-- [GitHub Repository](https://github.com/yourusername/notification-service)
 
 ### 기술적 성과
 - **Repository Pattern** 구현으로 코드 유지보수성 향상
